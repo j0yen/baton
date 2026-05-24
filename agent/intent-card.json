@@ -1,0 +1,149 @@
+{
+  "schema": "autobuilder.intent_card.v1",
+  "prd_source": "/home/jsy/wintermute/autobuilder/PRD-baton.md",
+  "intent_slug": "baton",
+  "root_motivation": "Delegated work between two visible claude windows must remain visible. delegate.run silently spawned a third invisible headless claude, breaking the user's ability to watch and steer delegated work in real time. baton is the addressing primitive that resolves a target session's injectable surface (X11 window-id or tmux pane) and publishes RPC envelopes the receiver's worker dispatches to the local injector.",
+  "user_persona": "Claude sessions on a single Linux laptop coordinating with each other across visible terminal windows, driven by jsy who watches the work happen.",
+  "unfakeable_metric": {
+    "name": "acceptance_tests_passing_count",
+    "lower_is_better": false,
+    "harness_command": "scripts/run-metrics.sh",
+    "target": 12
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC1",
+      "level": "MUST",
+      "description": "`baton --version` and `baton --help` print without panic; all subcommands have help.",
+      "test": "tests/acceptance_ac1.rs"
+    },
+    {
+      "id": "AC2",
+      "level": "MUST",
+      "description": "`baton peers` reads ~/.cache/baton/surfaces/*.json and emits a JSON array; missing dir is non-fatal (empty array).",
+      "test": "tests/acceptance_ac2.rs"
+    },
+    {
+      "id": "AC3",
+      "level": "MUST",
+      "description": "`baton send <sid> <prompt>` constructs a valid AGORABUS_RPC envelope with method=baton.send, params.prompt set, and an `id` matching ^rpc-baton-[a-z0-9]+$.",
+      "test": "tests/acceptance_ac3.rs"
+    },
+    {
+      "id": "AC4",
+      "level": "MUST",
+      "description": "`baton dry <sid> <prompt>` resolves a surface from the cache and returns it; publishes nothing when --no-publish is set.",
+      "test": "tests/acceptance_ac4.rs"
+    },
+    {
+      "id": "AC5",
+      "level": "MUST",
+      "description": "`baton key <sid> --chord C-c` constructs envelope with method=baton.key, params.chord='C-c', params.repeat defaulting to 1.",
+      "test": "tests/acceptance_ac5.rs"
+    },
+    {
+      "id": "AC6",
+      "level": "MUST",
+      "description": "`baton spawn <prompt>` constructs envelope with method=baton.spawn (the renamed delegate.run shim); preserves params.prompt and optional params.cwd.",
+      "test": "tests/acceptance_ac6.rs"
+    },
+    {
+      "id": "AC7",
+      "level": "MUST",
+      "description": "Code contains zero references to TIOCSTI, /dev/pts/, or setterm \u2014 verified by a build-time grep test.",
+      "test": "tests/acceptance_ac7.rs"
+    },
+    {
+      "id": "AC8",
+      "level": "SHOULD",
+      "description": "On `unreachable` reply from receiver, `baton send` exits with code 2 and prints the resolved surface to stderr.",
+      "test": "tests/acceptance_ac8.rs"
+    },
+    {
+      "id": "AC9",
+      "level": "SHOULD",
+      "description": "On `cooldown` reply from receiver, `baton send` exits with code 3.",
+      "test": "tests/acceptance_ac9.rs"
+    },
+    {
+      "id": "AC10",
+      "level": "SHOULD",
+      "description": "Envelope includes `deadline_unix` field, default = now() + 30s; --deadline-secs N overrides it.",
+      "test": "tests/acceptance_ac10.rs"
+    },
+    {
+      "id": "AC11",
+      "level": "SHOULD",
+      "description": "`baton surface <sid>` prints the cached surface JSON, exit 0; or `not_found` to stderr and exit 4 if no cache entry.",
+      "test": "tests/acceptance_ac11.rs"
+    },
+    {
+      "id": "AC12",
+      "level": "MAY",
+      "description": "`--json` global flag emits machine-readable output for `peers` and `surface` subcommands.",
+      "test": "tests/acceptance_ac12.rs"
+    }
+  ],
+  "scope": [
+    "Rust CLI binary `baton` (sender-side ergonomics)",
+    "Envelope construction matching AGORABUS_RPC.md v0.1",
+    "Cache read of ~/.cache/baton/surfaces/<sid>.json",
+    "Subscribe-before-publish race handling via agorabus subprocess",
+    "Exit-code mapping (0=ok, 2=unreachable, 3=cooldown, 4=not_found, 5=timeout)",
+    "Deadline arithmetic"
+  ],
+  "non_goals": [
+    "Shell injector backends (~/.local/lib/baton/injectors/*.sh) \u2014 separate work",
+    "agorabus-worker.sh baton.* method dispatcher \u2014 separate work",
+    "baton-register.sh SessionStart hook \u2014 separate work",
+    "Audit log \u2014 receiver-side, out of scope",
+    "Cross-machine delegation",
+    "Driving non-claude TUIs",
+    "Wayland keystroke injection"
+  ],
+  "hard_constraints": {
+    "rust_edition": "2024",
+    "target_kind": "cli",
+    "deny_unsafe": true,
+    "max_deps": 8,
+    "msrv": "1.85"
+  },
+  "five_whys_trace": [
+    {
+      "why": 1,
+      "q": "Why does delegate.run fall short?",
+      "a": "It spawns a fresh headless claude --print invisible to the user; the user can't watch or steer the work."
+    },
+    {
+      "why": 2,
+      "q": "Why does invisibility matter?",
+      "a": "Delegated work is high-stakes; invisible runs produce 'trust me, it's running' \u2014 the exact failure mode of background agents."
+    },
+    {
+      "why": 3,
+      "q": "Why can't we just attach to the headless?",
+      "a": "claude --print is one-shot, not interactive; there's nothing to attach to. The right answer is to drive the already-visible terminal."
+    },
+    {
+      "why": 4,
+      "q": "Why isn't there already a primitive for driving the visible terminal?",
+      "a": "TIOCSTI is locked on modern kernels; xdotool/tmux send-keys exist but nothing knows the sid->surface mapping. The gap is addressing, not transport."
+    },
+    {
+      "why": 5,
+      "q": "Why a Rust CLI instead of a bash script?",
+      "a": "Envelope construction, subscribe-before-publish race, deadline math, exit-code mapping are exactly the things that break in bash (evidenced 13:37 incident)."
+    }
+  ],
+  "ambiguities_resolved": [
+    {
+      "question": "Does the autobuilder slice include shell components?",
+      "resolution": "No. Autobuilder builds the Rust CLI only. Shell injectors + worker dispatch + register.sh are hand-authored after the CLI passes the gate."
+    },
+    {
+      "question": "Does the CLI shell out to agorabus for publish/subscribe?",
+      "resolution": "Yes. agorabus is already at ~/.local/bin/agorabus; the CLI wraps it. No direct UDS code in baton."
+    }
+  ],
+  "created_at": "2026-05-24T22:05:16Z"
+}
